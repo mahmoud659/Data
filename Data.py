@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Villa Payment Dashboard", layout="wide", page_icon="🏠")
 
@@ -27,7 +29,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ====== Constants ======
 DEDUCTION = 2000
 CURRENT_MONTH = datetime.today().month
 
@@ -44,8 +45,13 @@ SHAREHOLDERS = {
     "V7": {"1000": 0.35, "2000": 0.10, "3000": 0.10, "4000": 0.20, "5000": 0.10, "6000": 0.10, "7000": 0.05},
 }
 
-# كل الـ shareholder codes الموجودة
 ALL_SH_CODES = sorted(set(code for v in SHAREHOLDERS.values() for code in v.keys()), key=lambda x: int(x))
+
+VILLA_COLORS = {
+    "V1": "#e94560", "V2": "#4fc3f7", "V3": "#81c784",
+    "V4": "#f4a261", "V5": "#2ec4b6", "V6": "#9b5de5", "V7": "#f15bb5"
+}
+SH_COLORS = px.colors.qualitative.Set2
 
 def sort_month_cols(cols, fixed, ending):
     month_cols = [c for c in cols if c not in fixed + ending]
@@ -55,6 +61,12 @@ def sort_month_cols(cols, fixed, ending):
             next((m for m in MONTH_ORDER if m[:3] == x.split('-')[0]), None) or 'ZZZ'
         ) if '-' in x else 99
     )
+
+def label_to_month_num(lbl):
+    for i, m in enumerate(MONTH_ORDER):
+        if m[:3] == lbl.split('-')[0]:
+            return i + 1
+    return 99
 
 @st.cache_data
 def load_data(file):
@@ -75,6 +87,13 @@ def fmt(x):
         return f"{x:,.2f}"
     return x
 
+PLOTLY_THEME = dict(
+    template="plotly_dark",
+    paper_bgcolor="#1a1a2e",
+    plot_bgcolor="#16213e",
+    font=dict(color="white"),
+)
+
 st.markdown("# 🏠 Villa Payment Dashboard")
 st.markdown("---")
 
@@ -82,8 +101,9 @@ uploaded_file = st.file_uploader("📂 ارفع ملف Excel", type=["xlsx"])
 
 if uploaded_file:
     df = load_data(uploaded_file)
+    villa_map = {i+1: f"V{i+1}" for i in range(7)}
 
-    tab1, tab2 = st.tabs(["📋 الجدول التفصيلي", "👥 Monthly Collections"])
+    tab1, tab2, tab3 = st.tabs(["📋 الجدول التفصيلي", "👥 Monthly Collections", "📊 Analytics Dashboard"])
 
     # ==========================================
     # TAB 1
@@ -91,25 +111,19 @@ if uploaded_file:
     with tab1:
         st.markdown('<div class="section-title">🔍 الفلاتر</div>', unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
-
         with col1:
             years = sorted(df['Year'].unique())
             selected_years = st.multiselect("📅 السنة", options=years, default=years, key="tab1_years")
-            if not selected_years:
-                selected_years = years
-
+            if not selected_years: selected_years = years
         with col2:
             villas = sorted(df['villa No.'].unique())
             selected_villas = st.multiselect("🏠 الفيلا", options=villas, default=villas, key="tab1_villas")
-            if not selected_villas:
-                selected_villas = villas
-
+            if not selected_villas: selected_villas = villas
         with col3:
             months = df[df['Year'].isin(selected_years)]['Month Name'].unique()
             months_sorted = sorted(months, key=lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99)
             selected_months = st.multiselect("🗓️ الشهر", options=months_sorted, default=list(months_sorted), key="tab1_months")
-            if not selected_months:
-                selected_months = list(months_sorted)
+            if not selected_months: selected_months = list(months_sorted)
 
         filtered = df[
             df['Year'].isin(selected_years) &
@@ -120,54 +134,34 @@ if uploaded_file:
         st.markdown("---")
         st.markdown('<div class="section-title">💰 ملخص</div>', unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
-
         total_amount   = filtered['AMOUNT'].sum()
         num_villas     = filtered['villa No.'].nunique()
         num_months_kpi = filtered['Period'].nunique()
         avg_per_villa  = total_amount / num_villas if num_villas > 0 else 0
-
         with k1:
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-value">{total_amount:,}</div>
-                <div class="kpi-label">💰 إجمالي المدفوعات</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-value">{total_amount:,}</div><div class="kpi-label">💰 إجمالي المدفوعات</div></div>""", unsafe_allow_html=True)
         with k2:
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-value">{num_villas}</div>
-                <div class="kpi-label">🏠 عدد الفيلات</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-value">{num_villas}</div><div class="kpi-label">🏠 عدد الفيلات</div></div>""", unsafe_allow_html=True)
         with k3:
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-value">{num_months_kpi}</div>
-                <div class="kpi-label">🗓️ عدد الأشهر</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-value">{num_months_kpi}</div><div class="kpi-label">🗓️ عدد الأشهر</div></div>""", unsafe_allow_html=True)
         with k4:
-            st.markdown(f"""<div class="kpi-card">
-                <div class="kpi-value">{avg_per_villa:,.0f}</div>
-                <div class="kpi-label">📊 متوسط لكل فيلا</div>
-            </div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="kpi-card"><div class="kpi-value">{avg_per_villa:,.0f}</div><div class="kpi-label">📊 متوسط لكل فيلا</div></div>""", unsafe_allow_html=True)
 
         st.markdown("---")
         st.markdown('<div class="section-title">📋 الجدول التفصيلي</div>', unsafe_allow_html=True)
-
         for villa in sorted(filtered['villa No.'].unique()):
             villa_df = filtered[filtered['villa No.'] == villa]
             st.markdown(f"#### 🏠 Villa {villa}")
-
             for year in sorted(villa_df['Year'].unique()):
                 year_df = villa_df[villa_df['Year'] == year]
                 result = (
                     year_df.groupby(['Period_Sort', 'Period'])['AMOUNT']
                     .sum().reset_index().sort_values('Period_Sort')
                 )[['Period', 'AMOUNT']].rename(columns={'Period': 'الشهر', 'AMOUNT': 'SUM Amount'})
-                total_row = pd.DataFrame(
-                    [['إجمالي ' + str(year), result['SUM Amount'].sum()]],
-                    columns=['الشهر', 'SUM Amount']
-                )
+                total_row = pd.DataFrame([['إجمالي ' + str(year), result['SUM Amount'].sum()]], columns=['الشهر', 'SUM Amount'])
                 result = pd.concat([result, total_row], ignore_index=True)
                 with st.expander(f"📅 سنة {year} — إجمالي: {year_df['AMOUNT'].sum():,}"):
                     st.dataframe(result, use_container_width=True, hide_index=True)
-
             st.markdown(f"**💰 إجمالي Villa {villa} الكلي: {villa_df['AMOUNT'].sum():,}**")
             st.markdown("---")
 
@@ -185,92 +179,53 @@ if uploaded_file:
                         )[['Period', 'AMOUNT']].rename(columns={'Period': 'الشهر', 'AMOUNT': 'SUM Amount'})
                         result.insert(0, 'السنة', '')
                         result.at[result.index[0], 'السنة'] = str(year)
-                        total_row = pd.DataFrame(
-                            [['', 'إجمالي ' + str(year), result['SUM Amount'].sum()]],
-                            columns=['السنة', 'الشهر', 'SUM Amount']
-                        )
+                        total_row = pd.DataFrame([['', 'إجمالي ' + str(year), result['SUM Amount'].sum()]], columns=['السنة', 'الشهر', 'SUM Amount'])
                         result = pd.concat([result, total_row], ignore_index=True)
                         separator = pd.DataFrame([['', '', '']], columns=['السنة', 'الشهر', 'SUM Amount'])
                         all_data.extend([result, separator])
-                    grand = pd.DataFrame(
-                        [['', 'الإجمالي الكلي', villa_df['AMOUNT'].sum()]],
-                        columns=['السنة', 'الشهر', 'SUM Amount']
-                    )
+                    grand = pd.DataFrame([['', 'الإجمالي الكلي', villa_df['AMOUNT'].sum()]], columns=['السنة', 'الشهر', 'SUM Amount'])
                     all_data.append(grand)
-                    pd.concat(all_data, ignore_index=True).to_excel(
-                        writer, sheet_name=f"Villa {villa}", index=False
-                    )
+                    pd.concat(all_data, ignore_index=True).to_excel(writer, sheet_name=f"Villa {villa}", index=False)
             return output.getvalue()
 
         st.markdown('<div class="section-title">⬇️ تحميل النتائج</div>', unsafe_allow_html=True)
-        st.download_button(
-            label="⬇️ تحميل Excel",
-            data=generate_excel(filtered),
-            file_name="villa_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.download_button(label="⬇️ تحميل Excel", data=generate_excel(filtered), file_name="villa_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     # ==========================================
-    # TAB 2 - Monthly Collections
+    # TAB 2
     # ==========================================
     with tab2:
         st.markdown('<div class="section-title">🔍 فلتر السنة</div>', unsafe_allow_html=True)
-
         all_years = sorted(df['Year'].unique())
-        selected_year_sh = st.selectbox("📅 اختر السنة", options=all_years,
-                                         index=len(all_years)-1, key="tab2_year")
-
+        selected_year_sh = st.selectbox("📅 اختر السنة", options=all_years, index=len(all_years)-1, key="tab2_year")
         df_year = df[df['Year'] == selected_year_sh]
-
-        available_months = sorted(
-            df_year['Month Name'].unique(),
-            key=lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99
-        )
-
+        available_months = sorted(df_year['Month Name'].unique(), key=lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99)
         st.markdown(f"ℹ️ الشهر الحالي: **{MONTH_ORDER[CURRENT_MONTH-1]}** — خصم ثابت لكل شهر: **{DEDUCTION:,}**")
         st.markdown("---")
 
-        villa_map = {i+1: f"V{i+1}" for i in range(7)}
-
-        # ====== حساب بيانات كل فيلا ======
-        # sh_monthly_data[sh_code][month_label] = مجموع نصيب الشخص من كل الفيلات
         sh_monthly_data = {code: {} for code in ALL_SH_CODES}
-
         st.markdown('<div class="section-title">👥 Monthly Collections - per Villa</div>', unsafe_allow_html=True)
 
         for villa_num in sorted(df_year['villa No.'].unique()):
             villa_key = villa_map.get(villa_num)
-            if not villa_key or villa_key not in SHAREHOLDERS:
-                continue
-
+            if not villa_key or villa_key not in SHAREHOLDERS: continue
             villa_df     = df_year[df_year['villa No.'] == villa_num]
             shareholders = SHAREHOLDERS[villa_key]
-
-            monthly_totals = (
-                villa_df.groupby(['Month Num', 'Month Name'])['AMOUNT']
-                .sum().reset_index()
-            )
-            monthly_totals['Month Order'] = monthly_totals['Month Name'].apply(
-                lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99
-            )
+            monthly_totals = villa_df.groupby(['Month Num', 'Month Name'])['AMOUNT'].sum().reset_index()
+            monthly_totals['Month Order'] = monthly_totals['Month Name'].apply(lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99)
             monthly_totals = monthly_totals.sort_values('Month Order')
             monthly_totals = monthly_totals[monthly_totals['Month Name'].isin(available_months)]
-
             months_cols  = monthly_totals['Month Name'].tolist()
             months_nums  = monthly_totals['Month Num'].tolist()
             months_label = [f"{m[:3]}-{str(selected_year_sh)[2:]}" for m in months_cols]
 
             def get_net(month_name, mt=monthly_totals):
                 row = mt[mt['Month Name'] == month_name]['AMOUNT'].values
-                raw = int(row[0]) if len(row) > 0 else 0
-                return max(raw - DEDUCTION, 0)
+                return max(int(row[0]) - DEDUCTION, 0) if len(row) > 0 else 0
 
             rows = []
-
-            # صف Checks Collectives
             cc_row = {"Month": "Checks Collectives", "ShareHolders": "", "%": ""}
             total_sum = current_sum = current_plus1_sum = 0
-
             for i, m in enumerate(months_cols):
                 raw_val = int(monthly_totals[monthly_totals['Month Name'] == m]['AMOUNT'].values[0])
                 net_val = max(raw_val - DEDUCTION, 0)
@@ -279,21 +234,14 @@ if uploaded_file:
                 m_num = months_nums[i]
                 if m_num >= CURRENT_MONTH: current_sum += net_val
                 if m_num >  CURRENT_MONTH: current_plus1_sum += net_val
-
-            cc_row["الإجمالي"]  = total_sum
-            cc_row["Current"]   = current_sum
-            cc_row["Current+1"] = current_plus1_sum
+            cc_row["الإجمالي"] = total_sum
+            cc_row["Current"]  = current_sum
+            cc_row["Current+1"]= current_plus1_sum
             rows.append(cc_row)
 
-            # صفوف الـ Shareholders
             for sh_code, sh_pct in shareholders.items():
-                sh_row = {
-                    "Month": villa_key,
-                    "ShareHolders": sh_code,
-                    "%": f"{int(sh_pct*100)}%"
-                }
+                sh_row = {"Month": villa_key, "ShareHolders": sh_code, "%": f"{int(sh_pct*100)}%"}
                 sh_total = sh_current = sh_current_plus1 = 0
-
                 for i, m in enumerate(months_cols):
                     net_val = get_net(m)
                     if sh_pct > 0:
@@ -303,12 +251,9 @@ if uploaded_file:
                         m_num = months_nums[i]
                         if m_num >= CURRENT_MONTH: sh_current += sh_val
                         if m_num >  CURRENT_MONTH: sh_current_plus1 += sh_val
-                        # تجميع للـ Monthly Collections الكلي
-                        sh_monthly_data[sh_code][months_label[i]] = \
-                            sh_monthly_data[sh_code].get(months_label[i], 0) + sh_val
+                        sh_monthly_data[sh_code][months_label[i]] = sh_monthly_data[sh_code].get(months_label[i], 0) + sh_val
                     else:
                         sh_row[months_label[i]] = "-"
-
                 sh_row["الإجمالي"]  = round(sh_total, 2)         if sh_pct > 0 else "-"
                 sh_row["Current"]   = round(sh_current, 2)       if sh_pct > 0 else "-"
                 sh_row["Current+1"] = round(sh_current_plus1, 2) if sh_pct > 0 else "-"
@@ -319,7 +264,6 @@ if uploaded_file:
             ending_cols = ["الإجمالي", "Current", "Current+1"]
             month_cols_sorted = sort_month_cols(result_df.columns.tolist(), fixed_cols, ending_cols)
             result_df = result_df[fixed_cols + month_cols_sorted + ending_cols]
-
             for col in month_cols_sorted + ending_cols:
                 if col in result_df.columns:
                     result_df[col] = result_df[col].apply(fmt)
@@ -330,27 +274,16 @@ if uploaded_file:
                 return ['background-color: #1e3a5f; color: white'] * len(row)
 
             styled = result_df.style.apply(style_rows, axis=1)
-
             with st.expander(f"🏠 {villa_key} — إجمالي {selected_year_sh}: {villa_df['AMOUNT'].sum():,}", expanded=True):
                 st.dataframe(styled, use_container_width=True, hide_index=True)
 
-        # ====== جدول Monthly Collections الكلي ======
         st.markdown("---")
         st.markdown('<div class="section-title">📊 Monthly Collections - All Villas Combined</div>', unsafe_allow_html=True)
 
         all_month_labels = sorted(
             set(lbl for data in sh_monthly_data.values() for lbl in data.keys()),
-            key=lambda x: MONTH_ORDER.index(
-                next((m for m in MONTH_ORDER if m[:3] == x.split('-')[0]), None) or 'ZZZ'
-            ) if '-' in x else 99
+            key=lambda x: MONTH_ORDER.index(next((m for m in MONTH_ORDER if m[:3] == x.split('-')[0]), None) or 'ZZZ') if '-' in x else 99
         )
-
-        # إعادة حساب month_nums للـ current
-        def label_to_month_num(lbl):
-            for i, m in enumerate(MONTH_ORDER):
-                if m[:3] == lbl.split('-')[0]:
-                    return i + 1
-            return 99
 
         combined_rows = []
         grand_total_row = {"ShareHolders": "الإجمالي الكلي", "%": ""}
@@ -359,12 +292,9 @@ if uploaded_file:
 
         for sh_code in ALL_SH_CODES:
             data = sh_monthly_data[sh_code]
-            if not any(v > 0 for v in data.values()):
-                continue
-
+            if not any(v > 0 for v in data.values()): continue
             row = {"ShareHolders": sh_code, "%": ""}
             row_total = row_current = row_current_plus1 = 0
-
             for lbl in all_month_labels:
                 val = round(data.get(lbl, 0), 2)
                 row[lbl] = val
@@ -373,16 +303,12 @@ if uploaded_file:
                 if m_num >= CURRENT_MONTH: row_current += val
                 if m_num >  CURRENT_MONTH: row_current_plus1 += val
                 grand_totals[lbl] = grand_totals.get(lbl, 0) + val
-
             row["الإجمالي"]  = round(row_total, 2)
             row["Current"]   = round(row_current, 2)
             row["Current+1"] = round(row_current_plus1, 2)
-            grand_total_sum      += row_total
-            grand_current        += row_current
-            grand_current_plus1  += row_current_plus1
+            grand_total_sum += row_total; grand_current += row_current; grand_current_plus1 += row_current_plus1
             combined_rows.append(row)
 
-        # صف الإجمالي الكلي
         for lbl in all_month_labels:
             grand_total_row[lbl] = round(grand_totals[lbl], 2)
         grand_total_row["الإجمالي"]  = round(grand_total_sum, 2)
@@ -395,7 +321,6 @@ if uploaded_file:
         ending_cols = ["الإجمالي", "Current", "Current+1"]
         month_cols_sorted_c = sort_month_cols(combined_df.columns.tolist(), fixed_cols, ending_cols)
         combined_df = combined_df[fixed_cols + month_cols_sorted_c + ending_cols]
-
         for col in month_cols_sorted_c + ending_cols:
             if col in combined_df.columns:
                 combined_df[col] = combined_df[col].apply(fmt)
@@ -408,7 +333,6 @@ if uploaded_file:
         styled_combined = combined_df.style.apply(style_combined, axis=1)
         st.dataframe(styled_combined, use_container_width=True, hide_index=True)
 
-        # ====== Download ======
         st.markdown("---")
         st.markdown('<div class="section-title">⬇️ تحميل Monthly Collections</div>', unsafe_allow_html=True)
 
@@ -416,30 +340,20 @@ if uploaded_file:
             output = BytesIO()
             villa_map_local = {i+1: f"V{i+1}" for i in range(7)}
             df_yr  = df_data[df_data['Year'] == year]
-            avail  = sorted(df_yr['Month Name'].unique(),
-                            key=lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99)
-
+            avail  = sorted(df_yr['Month Name'].unique(), key=lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99)
             sh_monthly_xl = {code: {} for code in ALL_SH_CODES}
 
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 all_rows = []
                 for villa_num in sorted(df_yr['villa No.'].unique()):
                     villa_key = villa_map_local.get(villa_num)
-                    if not villa_key or villa_key not in SHAREHOLDERS:
-                        continue
+                    if not villa_key or villa_key not in SHAREHOLDERS: continue
                     villa_df     = df_yr[df_yr['villa No.'] == villa_num]
                     shareholders = SHAREHOLDERS[villa_key]
-
-                    monthly_totals = (
-                        villa_df.groupby(['Month Num', 'Month Name'])['AMOUNT']
-                        .sum().reset_index()
-                    )
-                    monthly_totals['Month Order'] = monthly_totals['Month Name'].apply(
-                        lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99
-                    )
+                    monthly_totals = villa_df.groupby(['Month Num', 'Month Name'])['AMOUNT'].sum().reset_index()
+                    monthly_totals['Month Order'] = monthly_totals['Month Name'].apply(lambda x: MONTH_ORDER.index(x) if x in MONTH_ORDER else 99)
                     monthly_totals = monthly_totals.sort_values('Month Order')
                     monthly_totals = monthly_totals[monthly_totals['Month Name'].isin(avail)]
-
                     months_cols  = monthly_totals['Month Name'].tolist()
                     months_nums  = monthly_totals['Month Num'].tolist()
                     months_label = [f"{m[:3]}-{str(year)[2:]}" for m in months_cols]
@@ -456,9 +370,7 @@ if uploaded_file:
                         t += net
                         if months_nums[i] >= CURRENT_MONTH: c  += net
                         if months_nums[i] >  CURRENT_MONTH: c1 += net
-                    cc_row["الإجمالي"] = t
-                    cc_row["Current"]  = c
-                    cc_row["Current+1"]= c1
+                    cc_row["الإجمالي"] = t; cc_row["Current"] = c; cc_row["Current+1"] = c1
                     all_rows.append(cc_row)
 
                     for sh_code, sh_pct in shareholders.items():
@@ -469,80 +381,56 @@ if uploaded_file:
                             if sh_pct > 0:
                                 val = round(net * sh_pct, 2)
                                 sh_row[months_label[i]] = val
-                                t2  += val
+                                t2 += val
                                 if months_nums[i] >= CURRENT_MONTH: c2  += val
                                 if months_nums[i] >  CURRENT_MONTH: c12 += val
-                                sh_monthly_xl[sh_code][months_label[i]] = \
-                                    sh_monthly_xl[sh_code].get(months_label[i], 0) + val
+                                sh_monthly_xl[sh_code][months_label[i]] = sh_monthly_xl[sh_code].get(months_label[i], 0) + val
                             else:
                                 sh_row[months_label[i]] = "-"
                         sh_row["الإجمالي"]  = round(t2,  2) if sh_pct > 0 else "-"
                         sh_row["Current"]   = round(c2,  2) if sh_pct > 0 else "-"
                         sh_row["Current+1"] = round(c12, 2) if sh_pct > 0 else "-"
                         all_rows.append(sh_row)
-
                     all_rows.append({})
 
-                # ترتيب شيت الفيلات
-                final_df    = pd.DataFrame(all_rows)
-                fixed_cols  = ["Month", "ShareHolders", "%"]
-                ending_cols = ["الإجمالي", "Current", "Current+1"]
-                month_cols_sorted = sort_month_cols(final_df.columns.tolist(), fixed_cols, ending_cols)
-                ordered_cols = (
-                    [c for c in fixed_cols  if c in final_df.columns] +
-                    month_cols_sorted +
-                    [c for c in ending_cols if c in final_df.columns]
-                )
-                final_df[ordered_cols].to_excel(writer, sheet_name=f"Collections {year}", index=False)
+                final_df = pd.DataFrame(all_rows)
+                fixed_c  = ["Month", "ShareHolders", "%"]
+                ending_c = ["الإجمالي", "Current", "Current+1"]
+                mcs      = sort_month_cols(final_df.columns.tolist(), fixed_c, ending_c)
+                ordered  = [c for c in fixed_c if c in final_df.columns] + mcs + [c for c in ending_c if c in final_df.columns]
+                final_df[ordered].to_excel(writer, sheet_name=f"Collections {year}", index=False)
 
-                # ====== شيت Monthly Collections الكلي ======
                 all_lbl = sorted(
                     set(lbl for data in sh_monthly_xl.values() for lbl in data.keys()),
-                    key=lambda x: MONTH_ORDER.index(
-                        next((m for m in MONTH_ORDER if m[:3] == x.split('-')[0]), None) or 'ZZZ'
-                    ) if '-' in x else 99
+                    key=lambda x: MONTH_ORDER.index(next((m for m in MONTH_ORDER if m[:3] == x.split('-')[0]), None) or 'ZZZ') if '-' in x else 99
                 )
-
                 combined_xl = []
                 gt_row = {"ShareHolders": "الإجمالي الكلي", "%": ""}
                 gt_totals = {lbl: 0 for lbl in all_lbl}
                 gt_sum = gt_c = gt_c1 = 0
-
                 for sh_code in ALL_SH_CODES:
                     data = sh_monthly_xl[sh_code]
-                    if not any(v > 0 for v in data.values()):
-                        continue
+                    if not any(v > 0 for v in data.values()): continue
                     row = {"ShareHolders": sh_code, "%": ""}
                     r_t = r_c = r_c1 = 0
                     for lbl in all_lbl:
                         val = round(data.get(lbl, 0), 2)
-                        row[lbl] = val
-                        r_t += val
+                        row[lbl] = val; r_t += val
                         m_num = label_to_month_num(lbl)
                         if m_num >= CURRENT_MONTH: r_c  += val
                         if m_num >  CURRENT_MONTH: r_c1 += val
                         gt_totals[lbl] += val
-                    row["الإجمالي"]  = round(r_t,  2)
-                    row["Current"]   = round(r_c,  2)
-                    row["Current+1"] = round(r_c1, 2)
+                    row["الإجمالي"] = round(r_t, 2); row["Current"] = round(r_c, 2); row["Current+1"] = round(r_c1, 2)
                     gt_sum += r_t; gt_c += r_c; gt_c1 += r_c1
                     combined_xl.append(row)
-
-                for lbl in all_lbl:
-                    gt_row[lbl] = round(gt_totals[lbl], 2)
-                gt_row["الإجمالي"]  = round(gt_sum, 2)
-                gt_row["Current"]   = round(gt_c,   2)
-                gt_row["Current+1"] = round(gt_c1,  2)
+                for lbl in all_lbl: gt_row[lbl] = round(gt_totals[lbl], 2)
+                gt_row["الإجمالي"] = round(gt_sum, 2); gt_row["Current"] = round(gt_c, 2); gt_row["Current+1"] = round(gt_c1, 2)
                 combined_xl.append(gt_row)
-
                 comb_df = pd.DataFrame(combined_xl)
-                fc  = ["ShareHolders", "%"]
-                ec  = ["الإجمالي", "Current", "Current+1"]
+                fc  = ["ShareHolders", "%"]; ec = ["الإجمالي", "Current", "Current+1"]
                 mcs = sort_month_cols(comb_df.columns.tolist(), fc, ec)
-                comb_df = comb_df[[c for c in fc if c in comb_df.columns] + mcs +
-                                   [c for c in ec if c in comb_df.columns]]
+                comb_df = comb_df[[c for c in fc if c in comb_df.columns] + mcs + [c for c in ec if c in comb_df.columns]]
                 comb_df.to_excel(writer, sheet_name="Monthly Collections", index=False)
-
             return output.getvalue()
 
         st.download_button(
@@ -551,6 +439,248 @@ if uploaded_file:
             file_name=f"monthly_collections_{selected_year_sh}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+    # ==========================================
+    # TAB 3 - Analytics Dashboard
+    # ==========================================
+    with tab3:
+        st.markdown('<div class="section-title">🔍 فلاتر التحليل</div>', unsafe_allow_html=True)
+
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            an_years = sorted(df['Year'].unique())
+            selected_an_years = st.multiselect("📅 السنة", options=an_years, default=an_years, key="tab3_years")
+            if not selected_an_years: selected_an_years = an_years
+        with fc2:
+            an_villas = sorted(df['villa No.'].unique())
+            selected_an_villas = st.multiselect("🏠 الفيلا", options=an_villas, default=an_villas, key="tab3_villas")
+            if not selected_an_villas: selected_an_villas = an_villas
+        with fc3:
+            an_sh = st.multiselect("👤 Shareholder", options=ALL_SH_CODES, default=ALL_SH_CODES, key="tab3_sh")
+            if not an_sh: an_sh = ALL_SH_CODES
+
+        df_an = df[df['Year'].isin(selected_an_years) & df['villa No.'].isin(selected_an_villas)]
+
+        st.markdown("---")
+
+        # ====== القسم الأول: تحليل الفيلات ======
+        st.markdown('<div class="section-title">🏠 تحليل إيرادات الفيلات</div>', unsafe_allow_html=True)
+
+        chart_type = st.radio("نوع المخطط", ["Bar Chart", "Pie Chart", "Bar + Pie"], horizontal=True, key="villa_chart_type")
+
+        villa_totals = df_an.groupby('villa No.')['AMOUNT'].sum().reset_index()
+        villa_totals['Villa'] = villa_totals['villa No.'].apply(lambda x: f"V{x}")
+        villa_totals = villa_totals.sort_values('villa No.')
+        colors_list  = [VILLA_COLORS.get(f"V{int(v)}", "#e94560") for v in villa_totals['villa No.']]
+
+        if chart_type in ["Bar Chart", "Bar + Pie"]:
+            fig_bar = go.Figure(go.Bar(
+                x=villa_totals['Villa'],
+                y=villa_totals['AMOUNT'],
+                marker_color=colors_list,
+                text=villa_totals['AMOUNT'].apply(lambda x: f"{x:,}"),
+                textposition='outside',
+            ))
+            fig_bar.update_layout(title="إجمالي إيرادات كل فيلا", xaxis_title="الفيلا", yaxis_title="الإيراد", **PLOTLY_THEME)
+            if chart_type == "Bar + Pie":
+                bc, pc = st.columns(2)
+                with bc: st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+        if chart_type in ["Pie Chart", "Bar + Pie"]:
+            fig_pie = go.Figure(go.Pie(
+                labels=villa_totals['Villa'], values=villa_totals['AMOUNT'],
+                marker_colors=colors_list, hole=0.4, textinfo='label+percent',
+            ))
+            fig_pie.update_layout(title="نسبة مساهمة كل فيلا", **PLOTLY_THEME)
+            if chart_type == "Bar + Pie":
+                with pc: st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+        st.markdown("---")
+
+        # ====== القسم الثاني: التحليل الزمني ======
+        st.markdown('<div class="section-title">📈 التحليل الزمني للإيرادات</div>', unsafe_allow_html=True)
+
+        time_mode = st.radio("اعرض", ["كل الفيلات مع بعض", "فيلا واحدة بالتفصيل"], horizontal=True, key="time_mode")
+
+        time_data = df_an.groupby(['Year', 'Month Num', 'Month Name', 'villa No.'])['AMOUNT'].sum().reset_index()
+        time_data['Villa']        = time_data['villa No.'].apply(lambda x: f"V{x}")
+        time_data['Period Label'] = time_data['Month Name'].apply(lambda x: x[:3]) + "-" + time_data['Year'].astype(str).str[-2:]
+        time_data['Period Sort']  = time_data['Year'] * 100 + time_data['Month Num']
+        time_data = time_data.sort_values('Period Sort')
+
+        if time_mode == "كل الفيلات مع بعض":
+            fig_line = px.line(
+                time_data, x='Period Label', y='AMOUNT', color='Villa',
+                markers=True, title="تطور الإيرادات الشهرية لكل فيلا",
+                color_discrete_map=VILLA_COLORS,
+                labels={'AMOUNT': 'الإيراد', 'Period Label': 'الشهر'},
+            )
+            fig_line.update_layout(xaxis_tickangle=-45, **PLOTLY_THEME)
+            st.plotly_chart(fig_line, use_container_width=True)
+
+            st.markdown("**🗓️ Heatmap — الفيلا × الشهر**")
+            pivot = time_data.pivot_table(index='Villa', columns='Period Label', values='AMOUNT', aggfunc='sum')
+            sorted_cols = time_data.drop_duplicates('Period Label').sort_values('Period Sort')['Period Label'].tolist()
+            pivot = pivot.reindex(columns=[c for c in sorted_cols if c in pivot.columns])
+            fig_heat = px.imshow(
+                pivot, text_auto=True, aspect='auto',
+                color_continuous_scale='RdYlGn',
+                title="Heatmap الإيرادات (فيلا × شهر)",
+                labels=dict(x="الشهر", y="الفيلا", color="الإيراد"),
+            )
+            fig_heat.update_layout(**PLOTLY_THEME)
+            st.plotly_chart(fig_heat, use_container_width=True)
+
+        else:
+            sel_villa_detail = st.selectbox("اختر الفيلا", options=[f"V{v}" for v in sorted(df_an['villa No.'].unique())], key="detail_villa")
+            villa_num_detail = int(sel_villa_detail[1:])
+            detail_data = time_data[time_data['villa No.'] == villa_num_detail].copy()
+
+            fig_detail = go.Figure()
+            fig_detail.add_trace(go.Bar(
+                x=detail_data['Period Label'], y=detail_data['AMOUNT'],
+                name='الإيراد الإجمالي',
+                marker_color=VILLA_COLORS.get(sel_villa_detail, "#e94560"),
+                text=detail_data['AMOUNT'].apply(lambda x: f"{x:,}"),
+                textposition='outside',
+            ))
+            net_vals = detail_data['AMOUNT'].apply(lambda x: max(x - DEDUCTION, 0))
+            fig_detail.add_trace(go.Scatter(
+                x=detail_data['Period Label'], y=net_vals,
+                name='الصافي بعد الخصم',
+                mode='lines+markers',
+                line=dict(color='#f4a261', width=2),
+                marker=dict(size=6),
+            ))
+            fig_detail.update_layout(
+                title=f"تفاصيل إيرادات {sel_villa_detail} شهرياً",
+                xaxis_tickangle=-45, **PLOTLY_THEME
+            )
+            st.plotly_chart(fig_detail, use_container_width=True)
+
+        st.markdown("---")
+
+        # ====== القسم الثالث: تحليل Shareholders ======
+        st.markdown('<div class="section-title">👥 تحليل نصيب Shareholders</div>', unsafe_allow_html=True)
+
+        sh_mode = st.radio(
+            "نوع التحليل",
+            ["نصيب كل shareholder شهرياً", "مقارنة إجمالي Shareholders", "Current vs Current+1"],
+            horizontal=True, key="sh_mode"
+        )
+
+        # بناء بيانات الـ shareholders بشكل صح
+        sh_records = []
+        for villa_num in sorted(df_an['villa No.'].unique()):
+            vk = villa_map.get(villa_num)
+            if not vk or vk not in SHAREHOLDERS: continue
+            vdf = df_an[df_an['villa No.'] == villa_num]
+            shareholders = SHAREHOLDERS[vk]
+            mt = vdf.groupby(['Year', 'Month Num', 'Month Name'])['AMOUNT'].sum().reset_index()
+            mt['Period Sort']  = mt['Year'] * 100 + mt['Month Num']
+            mt['Period Label'] = mt['Month Name'].apply(lambda x: x[:3]) + "-" + mt['Year'].astype(str).str[-2:]
+            mt = mt.sort_values('Period Sort')
+            for _, row in mt.iterrows():
+                # خصم الـ 2000 من كل فيلا × شهر بشكل منفصل
+                net = max(int(row['AMOUNT']) - DEDUCTION, 0)
+                for sh_code, sh_pct in shareholders.items():
+                    if sh_code not in an_sh: continue
+                    if sh_pct > 0:
+                        sh_records.append({
+                            'Villa':        vk,
+                            'ShareHolder':  sh_code,
+                            'Period Label': row['Period Label'],
+                            'Period Sort':  row['Period Sort'],
+                            'Month Num':    int(row['Month Num']),
+                            'Amount':       round(net * sh_pct, 2),
+                        })
+
+        sh_df = pd.DataFrame(sh_records)
+
+        if sh_df.empty:
+            st.warning("مفيش بيانات للـ Shareholders المختارين")
+        else:
+            if sh_mode == "نصيب كل shareholder شهرياً":
+                sh_monthly = (
+                    sh_df.groupby(['Period Label', 'Period Sort', 'ShareHolder'])['Amount']
+                    .sum().reset_index().sort_values('Period Sort')
+                )
+                fig_sh_line = px.line(
+                    sh_monthly, x='Period Label', y='Amount', color='ShareHolder',
+                    markers=True, title="نصيب كل Shareholder شهرياً (من كل الفيلات)",
+                    color_discrete_sequence=SH_COLORS,
+                    labels={'Amount': 'النصيب', 'Period Label': 'الشهر'},
+                )
+                fig_sh_line.update_layout(xaxis_tickangle=-45, **PLOTLY_THEME)
+                st.plotly_chart(fig_sh_line, use_container_width=True)
+
+                sh_monthly_sorted = sh_monthly.sort_values('Period Sort')
+                fig_sh_stack = px.bar(
+                    sh_monthly_sorted, x='Period Label', y='Amount', color='ShareHolder',
+                    barmode='stack',
+                    title="نصيب Shareholders المتراكم شهرياً — كل عمود = إجمالي شهر، الألوان = كل shareholder",
+                    color_discrete_sequence=SH_COLORS,
+                    labels={'Amount': 'النصيب', 'Period Label': 'الشهر'},
+                )
+                fig_sh_stack.update_layout(xaxis_tickangle=-45, **PLOTLY_THEME)
+                st.plotly_chart(fig_sh_stack, use_container_width=True)
+
+            elif sh_mode == "مقارنة إجمالي Shareholders":
+                sh_total = (
+                    sh_df.groupby('ShareHolder')['Amount']
+                    .sum().reset_index().sort_values('Amount', ascending=False)
+                )
+                fig_sh_bar = go.Figure(go.Bar(
+                    x=sh_total['ShareHolder'], y=sh_total['Amount'],
+                    marker_color=SH_COLORS[:len(sh_total)],
+                    text=sh_total['Amount'].apply(lambda x: f"{x:,.0f}"),
+                    textposition='outside',
+                ))
+                fig_sh_bar.update_layout(
+                    title="إجمالي نصيب كل Shareholder على كل الفترة",
+                    xaxis_title="Shareholder", yaxis_title="الإجمالي",
+                    **PLOTLY_THEME
+                )
+                st.plotly_chart(fig_sh_bar, use_container_width=True)
+
+                fig_sh_pie = go.Figure(go.Pie(
+                    labels=sh_total['ShareHolder'], values=sh_total['Amount'],
+                    hole=0.4, textinfo='label+percent',
+                    marker_colors=SH_COLORS[:len(sh_total)],
+                ))
+                fig_sh_pie.update_layout(title="توزيع نصيب Shareholders", **PLOTLY_THEME)
+                st.plotly_chart(fig_sh_pie, use_container_width=True)
+
+            elif sh_mode == "Current vs Current+1":
+                current_totals    = sh_df[sh_df['Month Num'] >= CURRENT_MONTH].groupby('ShareHolder')['Amount'].sum().reset_index()
+                current_p1_totals = sh_df[sh_df['Month Num'] >  CURRENT_MONTH].groupby('ShareHolder')['Amount'].sum().reset_index()
+                current_totals.columns    = ['ShareHolder', 'Current']
+                current_p1_totals.columns = ['ShareHolder', 'Current+1']
+                comp = current_totals.merge(current_p1_totals, on='ShareHolder', how='outer').fillna(0)
+                comp = comp.sort_values('ShareHolder')
+
+                fig_comp = go.Figure()
+                fig_comp.add_trace(go.Bar(
+                    name='Current', x=comp['ShareHolder'], y=comp['Current'],
+                    marker_color='#2ec4b6',
+                    text=comp['Current'].apply(lambda x: f"{x:,.0f}"), textposition='outside'
+                ))
+                fig_comp.add_trace(go.Bar(
+                    name='Current+1', x=comp['ShareHolder'], y=comp['Current+1'],
+                    marker_color='#f4a261',
+                    text=comp['Current+1'].apply(lambda x: f"{x:,.0f}"), textposition='outside'
+                ))
+                fig_comp.update_layout(
+                    barmode='group',
+                    title=f"Current ({MONTH_ORDER[CURRENT_MONTH-1][:3]} →) vs Current+1 لكل Shareholder",
+                    xaxis_title="Shareholder", yaxis_title="المبلغ",
+                    **PLOTLY_THEME
+                )
+                st.plotly_chart(fig_comp, use_container_width=True)
 
 else:
     st.info("👆 ارفع ملف Excel عشان تبدأ")
